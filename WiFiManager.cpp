@@ -151,10 +151,42 @@ void WiFiManager::setupConfigPortal() {
   server->on(String(F("/r")).c_str(), std::bind(&WiFiManager::handleReset, this));
   //server->on("/generate_204", std::bind(&WiFiManager::handle204, this));  //Android/Chrome OS captive portal check.
   server->on(String(F("/fwlink")).c_str(), std::bind(&WiFiManager::handleRoot, this));  //Microsoft captive portal. Maybe not needed. Might be handled by notFound handler.
+
+//**********************************************
+//Add Update Function. Copyright(C) SAV 19.10.19
+//**********************************************
+  server->on(String(F("/update")).c_str(), HTTP_POST, std::bind(&WiFiManager::HTTP_handleUpdateFinish, this), std::bind(&WiFiManager::HTTP_handleUpdate, this));
+  server->on(String(F("/upload")).c_str(), HTTP_GET, std::bind(&WiFiManager::HTTP_handleUpload, this));
+
   server->onNotFound (std::bind(&WiFiManager::handleNotFound, this));
   server->begin(); // Web server start
   DEBUG_WM(F("HTTP server started"));
 }
+
+void WiFiManager::httpStart() {
+  server.reset(new ESP8266WebServer(80));
+
+  /* Setup web pages: root, wifi config pages, SO captive portal detectors and not found. */
+  server->on(String(F("/")).c_str(), std::bind(&WiFiManager::handleRoot, this));
+  server->on(String(F("/wifi")).c_str(), std::bind(&WiFiManager::handleWifi, this, true));
+  server->on(String(F("/0wifi")).c_str(), std::bind(&WiFiManager::handleWifi, this, false));
+  server->on(String(F("/wifisave")).c_str(), std::bind(&WiFiManager::handleWifiSave, this));
+  server->on(String(F("/i")).c_str(), std::bind(&WiFiManager::handleInfo, this));
+  server->on(String(F("/r")).c_str(), std::bind(&WiFiManager::handleReset, this));
+  //server->on("/generate_204", std::bind(&WiFiManager::handle204, this));  //Android/Chrome OS captive portal check.
+  server->on(String(F("/fwlink")).c_str(), std::bind(&WiFiManager::handleRoot, this));  //Microsoft captive portal. Maybe not needed. Might be handled by notFound handler.
+
+//**********************************************
+//Add Update Function. Copyright(C) SAV 19.10.19
+//**********************************************
+  server->on(String(F("/update")).c_str(), HTTP_POST, std::bind(&WiFiManager::HTTP_handleUpdateFinish, this), std::bind(&WiFiManager::HTTP_handleUpdate, this));
+  server->on(String(F("/upload")).c_str(), HTTP_GET, std::bind(&WiFiManager::HTTP_handleUpload, this));
+
+  server->onNotFound (std::bind(&WiFiManager::handleNotFound, this));
+  server->begin(); // Web server start
+  DEBUG_WM(F("HTTP server started"));
+}
+
 
 boolean WiFiManager::autoConnect() {
   String ssid = "ESP" + String(ESP.getChipId());
@@ -278,7 +310,7 @@ int WiFiManager::connectWifi(String ssid, String pass) {
   // check if we've got static_ip settings, if we do, use those.
   if (_sta_static_ip) {
     DEBUG_WM(F("Custom STA IP/GW/Subnet"));
-    WiFi.config(_sta_static_ip, _sta_static_gw, _sta_static_sn);
+    WiFi.config(_sta_static_ip, _sta_static_gw, _sta_static_sn, _sta_static_dns);
     DEBUG_WM(WiFi.localIP());
   }
   //fix for auto connect racing issue
@@ -398,10 +430,11 @@ void WiFiManager::setAPStaticIPConfig(IPAddress ip, IPAddress gw, IPAddress sn) 
   _ap_static_sn = sn;
 }
 
-void WiFiManager::setSTAStaticIPConfig(IPAddress ip, IPAddress gw, IPAddress sn) {
-  _sta_static_ip = ip;
-  _sta_static_gw = gw;
-  _sta_static_sn = sn;
+void WiFiManager::setSTAStaticIPConfig(IPAddress ip, IPAddress gw, IPAddress sn, IPAddress dns) {
+  _sta_static_ip  = ip;
+  _sta_static_gw  = gw;
+  _sta_static_sn  = sn;
+  _sta_static_dns = dns;
 }
 
 void WiFiManager::setMinimumSignalQuality(int quality) {
@@ -813,4 +846,58 @@ String WiFiManager::toStringIp(IPAddress ip) {
   }
   res += String(((ip >> 8 * 3)) & 0xFF);
   return res;
+}
+
+//**********************************************
+//Add Update Function. Copyright(C) SAV 19.10.19
+//**********************************************
+void WiFiManager::HTTP_handleUpdateFinish(void){
+    String out = "";
+    if( Update.hasError() )out += R"(Update Failed!)";
+    else out += "<META http-equiv=\"refresh\" content=\"15;URL=\">Update Success! Rebooting...";
+    server->send(200, "text/html", out);
+    ESP.restart();
+}
+
+void WiFiManager::HTTP_handleUpdate(void){
+    HTTPUpload& upload = server->upload();
+    if(upload.status == UPLOAD_FILE_START){
+        if( _debug )Serial.setDebugOutput(true);
+
+
+        WiFiUDP::stopAll();
+        if( _debug )Serial.printf("Update: %s\n", upload.filename.c_str());
+        uint32_t maxSketchSpace = (ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000;
+        if(!Update.begin(maxSketchSpace)){//start with max available size
+          if( _debug ) Update.printError(Serial);
+        }
+      } else if( upload.status == UPLOAD_FILE_WRITE){
+        if( _debug )Serial.printf(".");
+        if(Update.write(upload.buf, upload.currentSize) != upload.currentSize){
+          if( _debug ) Update.printError(Serial);
+
+        }
+      } else if( upload.status == UPLOAD_FILE_END){
+        if(Update.end(true)){ //true to set the size to the current progress
+          if( _debug )Serial.printf("Update Success: %u\nRebooting...\n", upload.totalSize);
+        } else {
+          if( _debug ) Update.printError(Serial);
+        }
+        if( _debug )Serial.setDebugOutput(false);
+      } else if( upload.status == UPLOAD_FILE_ABORTED){
+        Update.end();
+        if( _debug )Serial.println("Update was aborted");
+      }
+      delay(0);
+
+  
+  
+}
+
+void WiFiManager::HTTP_handleUpload() {
+  Serial.println("Enter handleUpload");
+
+  String content;
+  content += "<p><form method='POST' action='/update' enctype='multipart/form-data'><input type='file' name='update'><input type='submit' value='Update'></form>";
+  server->send(200, "text/html", content);
 }

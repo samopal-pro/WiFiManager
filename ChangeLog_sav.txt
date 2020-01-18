@@ -1,0 +1,8 @@
+01.12.2019
+1. Добавил обновление прошивки через WEB. Заменил кнопку "Info" на "Update"
+2. Добавил функцию httpStart() для запуска локального WEB-сервера в режиме станции
+   server->handleClient() сделал доступным для запуска в loop()
+   
+18.01.20
+1. В setSTAStaticIPConfig добавил четвертый параметр - DNS.
+   setSTAStaticIPConfig(APAddress _ip, APAddress _gw, APAddress _sn, APAddress _dns);
