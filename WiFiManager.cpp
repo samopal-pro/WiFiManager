@@ -70,6 +70,10 @@ const char* WiFiManagerParameter::getCustomHTML() {
 WiFiManager::WiFiManager() {
     _max_params = WIFI_MANAGER_MAX_PARAMS;
     _params = (WiFiManagerParameter**)malloc(_max_params * sizeof(WiFiManagerParameter*));
+//**********************************************
+//Add Auth Function. Copyright(C) SAV 31.01.20
+//**********************************************
+    setAuthHTTP(AUTH_NONE);
 }
 
 WiFiManager::~WiFiManager()
@@ -106,7 +110,12 @@ bool WiFiManager::addParameter(WiFiManagerParameter *p) {
 
 void WiFiManager::setupConfigPortal() {
   dnsServer.reset(new DNSServer());
+
+#if defined(ESP8266)  
   server.reset(new ESP8266WebServer(80));
+#else
+  server.reset(new WebServer(80));
+#endif
 
   DEBUG_WM(F(""));
   _configPortalStart = millis();
@@ -157,6 +166,11 @@ void WiFiManager::setupConfigPortal() {
 //**********************************************
   server->on(String(F("/update")).c_str(), HTTP_POST, std::bind(&WiFiManager::HTTP_handleUpdateFinish, this), std::bind(&WiFiManager::HTTP_handleUpdate, this));
   server->on(String(F("/upload")).c_str(), HTTP_GET, std::bind(&WiFiManager::HTTP_handleUpload, this));
+//**********************************************
+//Add Auth Function. Copyright(C) SAV 31.01.20
+//**********************************************
+//  server->on(String(F("/login")).c_str(), std::bind(&WiFiManager::handleLogin, this));  
+  server->on(String(F("/logout")).c_str(),std::bind(&WiFiManager::handleLogout, this));
 
   server->onNotFound (std::bind(&WiFiManager::handleNotFound, this));
   server->begin(); // Web server start
@@ -164,7 +178,12 @@ void WiFiManager::setupConfigPortal() {
 }
 
 void WiFiManager::httpStart() {
+
+#if defined(ESP8266)  
   server.reset(new ESP8266WebServer(80));
+#else
+  server.reset(new WebServer(80));
+#endif  
 
   /* Setup web pages: root, wifi config pages, SO captive portal detectors and not found. */
   server->on(String(F("/")).c_str(), std::bind(&WiFiManager::handleRoot, this));
@@ -181,15 +200,21 @@ void WiFiManager::httpStart() {
 //**********************************************
   server->on(String(F("/update")).c_str(), HTTP_POST, std::bind(&WiFiManager::HTTP_handleUpdateFinish, this), std::bind(&WiFiManager::HTTP_handleUpdate, this));
   server->on(String(F("/upload")).c_str(), HTTP_GET, std::bind(&WiFiManager::HTTP_handleUpload, this));
+//**********************************************
+//Add Auth Function. Copyright(C) SAV 31.01.20
+//**********************************************
+//  server->on(String(F("/login")).c_str(), std::bind(&WiFiManager::handleLogin, this));  
+  server->on(String(F("/logout")).c_str(),std::bind(&WiFiManager::handleLogout, this));
 
   server->onNotFound (std::bind(&WiFiManager::handleNotFound, this));
   server->begin(); // Web server start
   DEBUG_WM(F("HTTP server started"));
+  
 }
 
 
 boolean WiFiManager::autoConnect() {
-  String ssid = "ESP" + String(ESP.getChipId());
+  String ssid = "ESP" + String(ESP_getChipId());
   return autoConnect(ssid.c_str(), NULL);
 }
 
@@ -215,7 +240,11 @@ boolean WiFiManager::autoConnect(char const *apName, char const *apPassword) {
 }
 
 boolean WiFiManager::configPortalHasTimeout(){
+#if defined(ESP8266)
     if(_configPortalTimeout == 0 || wifi_softap_get_station_num() > 0){
+#else
+    if(_configPortalTimeout == 0){  // TODO
+#endif
       _configPortalStart = millis(); // kludge, bump configportal start time to skew timeouts
       return false;
     }
@@ -223,7 +252,7 @@ boolean WiFiManager::configPortalHasTimeout(){
 }
 
 boolean WiFiManager::startConfigPortal() {
-  String ssid = "ESP" + String(ESP.getChipId());
+  String ssid = "ESP" + String(ESP_getChipId());
   return startConfigPortal(ssid.c_str(), NULL);
 }
 
@@ -325,10 +354,14 @@ int WiFiManager::connectWifi(String ssid, String pass) {
     if (WiFi.SSID() != "") {
       DEBUG_WM(F("Using last saved values, should be faster"));
       //trying to fix connection in progress hanging
+#if defined(ESP8266)
+      //trying to fix connection in progress hanging
       ETS_UART_INTR_DISABLE();
       wifi_station_disconnect();
       ETS_UART_INTR_ENABLE();
-
+#else
+      esp_wifi_disconnect();
+#endif
       WiFi.begin();
     } else {
       DEBUG_WM(F("No saved credentials"));
@@ -373,9 +406,14 @@ uint8_t WiFiManager::waitForConnectResult() {
 }
 
 void WiFiManager::startWPS() {
-  DEBUG_WM(F("START WPS"));
+#if defined(ESP8266)
+  DEBUG_WM("START WPS");
   WiFi.beginWPSConfig();
-  DEBUG_WM(F("END WPS"));
+  DEBUG_WM("END WPS");
+#else
+  // TODO
+  DEBUG_WM("ESP32 WPS TODO");
+#endif
 }
 /*
   String WiFiManager::getSSID() {
@@ -423,13 +461,13 @@ void WiFiManager::setConnectTimeout(unsigned long seconds) {
 void WiFiManager::setDebugOutput(boolean debug) {
   _debug = debug;
 }
-
+/*
 void WiFiManager::setAPStaticIPConfig(IPAddress ip, IPAddress gw, IPAddress sn) {
   _ap_static_ip = ip;
   _ap_static_gw = gw;
   _ap_static_sn = sn;
 }
-
+*/
 void WiFiManager::setSTAStaticIPConfig(IPAddress ip, IPAddress gw, IPAddress sn, IPAddress dns) {
   _sta_static_ip  = ip;
   _sta_static_gw  = gw;
@@ -451,7 +489,7 @@ void WiFiManager::handleRoot() {
   if (captivePortal()) { // If caprive portal redirect instead of displaying the page.
     return;
   }
-
+  if( !isAuth() )return;
   String page = FPSTR(HTTP_HEADER);
   page.replace("{v}", "Options");
   page += FPSTR(HTTP_SCRIPT);
@@ -459,7 +497,8 @@ void WiFiManager::handleRoot() {
   page += _customHeadElement;
   page += FPSTR(HTTP_HEADER_END);
   page += String(F("<h1>"));
-  page += _apName;
+  if( strcmp(_apName,"no-net") == 0 )page += "ESP" + String(ESP_getChipId());
+  else page += _apName;
   page += String(F("</h1>"));
   page += String(F("<h3>WiFiManager</h3>"));
   page += FPSTR(HTTP_PORTAL_OPTIONS);
@@ -472,6 +511,7 @@ void WiFiManager::handleRoot() {
 
 /** Wifi config page handler */
 void WiFiManager::handleWifi(boolean scan) {
+  if( !isAuth() )return;
 
   String page = FPSTR(HTTP_HEADER);
   page.replace("{v}", "Config ESP");
@@ -538,7 +578,11 @@ void WiFiManager::handleWifi(boolean scan) {
           rssiQ += quality;
           item.replace("{v}", WiFi.SSID(indices[i]));
           item.replace("{r}", rssiQ);
+#if defined(ESP8266)
           if (WiFi.encryptionType(indices[i]) != ENC_TYPE_NONE) {
+#else
+          if (WiFi.encryptionType(indices[i]) != WIFI_AUTH_OPEN) {
+#endif
             item.replace("{i}", "l");
           } else {
             item.replace("{i}", "");
@@ -628,6 +672,7 @@ void WiFiManager::handleWifi(boolean scan) {
 
 /** Handle the WLAN save form and redirect to WLAN config page again */
 void WiFiManager::handleWifiSave() {
+  if( !isAuth() )return;
   DEBUG_WM(F("WiFi save"));
 
   //SAVE/connect here
@@ -688,6 +733,7 @@ void WiFiManager::handleWifiSave() {
 /** Handle the info page */
 void WiFiManager::handleInfo() {
   DEBUG_WM(F("Info"));
+  if( !isAuth() )return;
 
   String page = FPSTR(HTTP_HEADER);
   page.replace("{v}", "Info");
@@ -697,16 +743,26 @@ void WiFiManager::handleInfo() {
   page += FPSTR(HTTP_HEADER_END);
   page += F("<dl>");
   page += F("<dt>Chip ID</dt><dd>");
-  page += ESP.getChipId();
+  page += ESP_getChipId();
   page += F("</dd>");
   page += F("<dt>Flash Chip ID</dt><dd>");
+#if defined(ESP8266)
   page += ESP.getFlashChipId();
+#else
+  // TODO
+  page += F("TODO");
+#endif
   page += F("</dd>");
   page += F("<dt>IDE Flash Size</dt><dd>");
   page += ESP.getFlashChipSize();
   page += F(" bytes</dd>");
   page += F("<dt>Real Flash Size</dt><dd>");
+#if defined(ESP8266)
   page += ESP.getFlashChipRealSize();
+#else
+  // TODO
+  page += F("TODO");
+#endif
   page += F(" bytes</dd>");
   page += F("<dt>Soft AP IP</dt><dd>");
   page += WiFi.softAPIP().toString();
@@ -729,6 +785,7 @@ void WiFiManager::handleInfo() {
 /** Handle the reset page */
 void WiFiManager::handleReset() {
   DEBUG_WM(F("Reset"));
+  if( !isAuth() )return;
 
   String page = FPSTR(HTTP_HEADER);
   page.replace("{v}", "Info");
@@ -744,7 +801,11 @@ void WiFiManager::handleReset() {
 
   DEBUG_WM(F("Sent reset page"));
   delay(5000);
+#if defined(ESP8266)
   ESP.reset();
+#else
+  ESP.restart();
+#endif
   delay(2000);
 }
 
@@ -854,8 +915,10 @@ String WiFiManager::toStringIp(IPAddress ip) {
 void WiFiManager::HTTP_handleUpdateFinish(void){
     String out = "";
     if( Update.hasError() )out += R"(Update Failed!)";
-    else out += "<META http-equiv=\"refresh\" content=\"15;URL=\">Update Success! Rebooting...";
+    else out += "<META http-equiv=\"refresh\" content=\"15,URL='/'\">Update Success! Rebooting...";
     server->send(200, "text/html", out);
+    Serial.println(out);
+    delay(3000);
     ESP.restart();
 }
 
@@ -864,9 +927,12 @@ void WiFiManager::HTTP_handleUpdate(void){
     if(upload.status == UPLOAD_FILE_START){
         if( _debug )Serial.setDebugOutput(true);
 
-
-        WiFiUDP::stopAll();
-        if( _debug )Serial.printf("Update: %s\n", upload.filename.c_str());
+#if defined(ESP8266)
+       WiFiUDP::stopAll();
+#else
+       DEBUG_WM(F("TODO"));
+#endif
+         if( _debug )Serial.printf("Update: %s\n", upload.filename.c_str());
         uint32_t maxSketchSpace = (ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000;
         if(!Update.begin(maxSketchSpace)){//start with max available size
           if( _debug ) Update.printError(Serial);
@@ -895,9 +961,53 @@ void WiFiManager::HTTP_handleUpdate(void){
 }
 
 void WiFiManager::HTTP_handleUpload() {
-  Serial.println("Enter handleUpload");
+  DEBUG_WM("Enter handleUpload");
+  if( !isAuth() )return;
 
-  String content;
-  content += "<p><form method='POST' action='/update' enctype='multipart/form-data'><input type='file' name='update'><input type='submit' value='Update'></form>";
-  server->send(200, "text/html", content);
+  String page = FPSTR(HTTP_HEADER);
+//  page.replace("{v}", "Options");
+  page += FPSTR(HTTP_SCRIPT);
+  page += FPSTR(HTTP_STYLE);
+  page += FPSTR(HTTP_HEADER_END);
+  page += String(F("<h1>Update Firmware</h1>"));
+  page += FPSTR(HTTP_UPLOAD);
+
+
+//  page += "<p><form method='POST' action='/update' enctype='multipart/form-data'><input type='file' name='update'><button>Обновить прошивку</button></form>";
+  page += FPSTR(HTTP_END);
+  server->send(200, "text/html", page);
+}
+
+ //**********************************************
+//Add Auth Function. Copyright(C) SAV 31.01.20
+//**********************************************
+void WiFiManager::setAuthHTTP(AUTH_MODE_HTTP mode, String pass){
+  _authMode     = mode;
+  _authPassword = pass;
+  _authUser     = "admin";
+}
+
+
+bool WiFiManager::isAuth(void) {
+  if( _authMode == AUTH_NONE ||
+     _authMode == AUTH_AP && WiFi.getMode() == WIFI_STA ||
+     _authMode == AUTH_STA && WiFi.getMode() == WIFI_AP ){
+      DEBUG_WM("Not Authentification");
+      return true;
+     }
+
+    if (!server->authenticate(_authUser.c_str(), _authPassword.c_str())) {
+      DEBUG_WM("Authentification Failed");
+      server->requestAuthentication();
+      return false;
+    }
+    DEBUG_WM("Authentification Successful");
+    return true;
+}
+
+void WiFiManager::handleLogout() {
+//  server->authenticate("", "");
+  server->sendHeader("HTTP/1.1 401 Unauthorized", "true");
+  server->send(401,"text/html","Log Out ...");
+
 }

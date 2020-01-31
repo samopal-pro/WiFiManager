@@ -13,19 +13,39 @@
 #ifndef WiFiManager_h
 #define WiFiManager_h
 
+#if defined(ESP8266)
+// Файлы для ESP8266
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
+// Update function. Add SAV
+//#include <ESP8266HTTPUpdateServer.h>
+#include <Updater.h>
+#else
+// Файлы для ESP32
+#include <WiFi.h>
+#include <WebServer.h>
+// Update function. Add SAV
+#include <Update.h>
+#endif
 #include <DNSServer.h>
 #include <memory>
-/**
- * Update function. Add SAV
- */
-#include <ESP8266HTTPUpdateServer.h>
 
-
+#if defined(ESP8266)
 extern "C" {
   #include "user_interface.h"
 }
+#define ESP_getChipId()   (ESP.getChipId())
+#else
+#include <esp_wifi.h>
+#define ESP_getChipId()   ((uint32_t)ESP.getEfuseMac())
+#endif
+
+typedef enum {
+  AUTH_NONE = 0, //Без авторизации
+  AUTH_STA,      //Авторизация только в режиме станции
+  AUTH_AP,       //Авторизацтя только в режиме точки доступа
+  AUTH_ALL,      //Авторизация везде
+}AUTH_MODE_HTTP;
 
 const char HTTP_HEADER[] PROGMEM          = "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1, user-scalable=no\"/><title>{v}</title>";
 const char HTTP_STYLE[] PROGMEM           = "<style>.c{text-align: center;} div,input{padding:5px;font-size:1em;} input{width:95%;} body{text-align: center;font-family:verdana;} button{border:0;border-radius:0.3rem;background-color:#1fa3ec;color:#fff;line-height:2.4rem;font-size:1.2rem;width:100%;} .q{float: right;width: 64px;text-align: right;} .l{background: url(\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAMAAABEpIrGAAAALVBMVEX///8EBwfBwsLw8PAzNjaCg4NTVVUjJiZDRUUUFxdiZGSho6OSk5Pg4eFydHTCjaf3AAAAZElEQVQ4je2NSw7AIAhEBamKn97/uMXEGBvozkWb9C2Zx4xzWykBhFAeYp9gkLyZE0zIMno9n4g19hmdY39scwqVkOXaxph0ZCXQcqxSpgQpONa59wkRDOL93eAXvimwlbPbwwVAegLS1HGfZAAAAABJRU5ErkJggg==\") no-repeat left center;background-size: 1em;}</style>";
@@ -35,6 +55,10 @@ const char HTTP_HEADER_END[] PROGMEM        = "</head><body><div style='text-ali
 //Add Update Function. Copyright(C) SAV 19.10.19 ( "/i" -> "/upload" )
 //**********************************************
 const char HTTP_PORTAL_OPTIONS[] PROGMEM  = "<form action=\"/wifi\" method=\"get\"><button>Configure WiFi</button></form><br/><form action=\"/0wifi\" method=\"get\"><button>Configure WiFi (No Scan)</button></form><br/><form action=\"/upload\" method=\"get\"><button>Update</button></form><br/><form action=\"/r\" method=\"post\"><button>Reset</button></form>";
+
+const char HTTP_UPLOAD[] PROGMEM  = "<p><form method='POST' action='/update' enctype='multipart/form-data'><input type='file' name='update'><button>Update Firmware</button></form>";
+//const char HTTP_LOGIN[] PROGMEM  = "<form action='/login' method='POST'>HTTP Password: <input type='password' name='PASSWORD' placeholder='password'><button>Login</button></form>";
+
 const char HTTP_ITEM[] PROGMEM            = "<div><a href='#p' onclick='c(this)'>{v}</a>&nbsp;<span class='q {i}'>{r}%</span></div>";
 const char HTTP_FORM_START[] PROGMEM      = "<form method='get' action='wifisave'><input id='s' name='s' length=32 placeholder='SSID'><br/><input id='p' name='p' length=64 type='password' placeholder='password'><br/>";
 const char HTTP_FORM_PARAM[] PROGMEM      = "<br/><input id='{i}' name='{n}' maxlength={l} placeholder='{p}' value='{v}' {c}>";
@@ -108,9 +132,9 @@ class WiFiManager
     //defaults to not showing anything under 8% signal quality if called
     void          setMinimumSignalQuality(int quality = 8);
     //sets a custom ip /gateway /subnet configuration
-    void          setAPStaticIPConfig(IPAddress ip, IPAddress gw, IPAddress sn);
+//    void          setAPStaticIPConfig(IPAddress ip, IPAddress gw, IPAddress sn);
     //sets config for a static IP
-    void          setSTAStaticIPConfig(IPAddress ip, IPAddress gw, IPAddress sn, IPAddress dns = NULL);
+    void          setSTAStaticIPConfig(IPAddress ip, IPAddress gw, IPAddress sn, IPAddress dns = (uint32_t)0x00000000);
     //called when AP mode and config portal is started
     void          setAPCallback( void (*func)(WiFiManager*) );
     //called when settings have been changed and connection was successful
@@ -127,9 +151,17 @@ class WiFiManager
     void          setRemoveDuplicateAPs(boolean removeDuplicates);
 
     std::unique_ptr<DNSServer>        dnsServer;
+#if defined(ESP8266)
     std::unique_ptr<ESP8266WebServer> server;
+#else
+    std::unique_ptr<WebServer> server;
+#endif    
     void          httpStart();
-
+//**********************************************
+//Add Auth Function. Copyright(C) SAV 31.01.20
+//**********************************************
+    void setAuthHTTP(AUTH_MODE_HTTP mode = AUTH_NONE, String pass = "" );
+ 
   private:
 
     //const int     WM_DONE                 = 0;
@@ -215,6 +247,14 @@ class WiFiManager
     void HTTP_handleUpdateFinish(void);
     void HTTP_handleUpdate(void);
     void HTTP_handleUpload(void);
-};
+//**********************************************
+//Add Auth Function. Copyright(C) SAV 31.01.20
+//**********************************************
+    AUTH_MODE_HTTP _authMode;
+    String _authPassword;
+    String _authUser;
+     void handleLogout(void);
+    bool isAuth(void); 
+ };
 
 #endif
