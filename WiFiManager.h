@@ -54,7 +54,8 @@ const char HTTP_HEADER_END[] PROGMEM        = "</head><body><div style='text-ali
 //**********************************************
 //Add Update Function. Copyright(C) SAV 19.10.19 ( "/i" -> "/upload" )
 //**********************************************
-const char HTTP_PORTAL_OPTIONS[] PROGMEM  = "<form action=\"/wifi\" method=\"get\"><button>Configure WiFi</button></form><br/><form action=\"/0wifi\" method=\"get\"><button>Configure WiFi (No Scan)</button></form><br/><form action=\"/upload\" method=\"get\"><button>Update</button></form><br/><form action=\"/r\" method=\"post\"><button>Reset</button></form>";
+const char HTTP_PORTAL_OPTIONS[] PROGMEM  = "<form action=\"/wifi\" method=\"get\"><button>Configure WiFi</button></form><br/><form action=\"/0wifi\" method=\"get\"><button>Configure WiFi (No Scan)</button></form><br/>";
+const char HTTP_PORTAL_OPTIONS1[] PROGMEM = "<form action=\"/upload\" method=\"get\"><button>Update</button></form><br/><form action=\"/r\" method=\"post\"><button>Reset</button></form>";
 
 const char HTTP_UPLOAD[] PROGMEM  = "<p><form method='POST' action='/update' enctype='multipart/form-data'><input type='file' name='update'><button>Update Firmware</button></form>";
 //const char HTTP_LOGIN[] PROGMEM  = "<form action='/login' method='POST'>HTTP Password: <input type='password' name='PASSWORD' placeholder='password'><button>Login</button></form>";
@@ -99,6 +100,7 @@ class WiFiManagerParameter {
     friend class WiFiManager;
 };
 
+    typedef std::function<void(void)> THandlerFunction; 
 
 class WiFiManager
 {
@@ -161,7 +163,13 @@ class WiFiManager
 //Add Auth Function. Copyright(C) SAV 31.01.20
 //**********************************************
     void setAuthHTTP(AUTH_MODE_HTTP mode = AUTH_NONE, String pass = "" );
- 
+//***********************************************
+// HTTP User Page. Copyright(C) SAV 29.02.20
+//***********************************************
+   void setHttpUserPage(String _name, void (*func)(WiFiManager* myWiFiManager));  
+   void addInput(String &out,const char *label, const char *name, const char *value, int size, int len, bool is_pass = false);
+   void addInput(String &out,const char *label, const char *name, int value, int size);
+   void          setUpdateCallback( void (*func)(void) );
   private:
 
     //const int     WM_DONE                 = 0;
@@ -210,6 +218,7 @@ class WiFiManager
     void          handleReset();
     void          handleNotFound();
     void          handle204();
+    void          handleUser();
     boolean       captivePortal();
     boolean       configPortalHasTimeout();
    
@@ -226,6 +235,10 @@ class WiFiManager
 
     void (*_apcallback)(WiFiManager*) = NULL;
     void (*_savecallback)(void) = NULL;
+// sav13    
+    void (*_httpusercallback)(WiFiManager*) = NULL;
+    void (*_updatecallback)(void) = NULL;
+   
 
     int                    _max_params;
     WiFiManagerParameter** _params;
@@ -255,6 +268,12 @@ class WiFiManager
     String _authUser;
      void handleLogout(void);
     bool isAuth(void); 
+//***********************************************
+// HTTP User Page. Copyright(C) SAV 29.02.20
+//***********************************************
+   THandlerFunction _handleUser;
+   String _buttonUser;
  };
+  
 
 #endif

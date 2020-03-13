@@ -1,3 +1,40 @@
+13.02.2020
+Добавлены методы класса
+/**
+* Пользовательская страничка в меню /custom
+* @param name - название кнопки
+* @param func - функция для формирования HTTP кода
+*/
+void setHttpUserPage(String _name, void (*func)(WiFiManager* myWiFiManager));  
+
+/**
+* Добавить элемент INPUT на страничку
+* @param out - Строка-буфер, в которой формируется HTML страница
+* @param label - Строка отображаемая перед полем ввода
+* @param name  - Идентификатор поля
+* @param value - Значение по умолчанию (текстовое)
+* @param size  - Размер поля для ввода (в символах)
+* @param len   - Максимальная длина вводимой строки
+* @param is_pass - Неотображаемый ввод пароля (если ture). По умолчанию false
+*/
+void addInput(String &out,const char *label, const char *name, const char *value, int size, int len, bool is_pass = false);
+
+/**
+* Добавить элемент INPUT на страничку
+* @param out - Строка-буфер, в которой формируется HTML страница
+* @param label - Строка отображаемая перед полем ввода
+* @param name  - Идентификатор поля
+* @param value - Значение по умолчанию (число)
+* @param size  - Размер поля для ввода (в символах)
+*/
+void addInput(String &out,const char *label, const char *name, int value, int size);
+
+/**
+* Callback функция. Вызывается в момент загрузки прошивки в контроллер
+*/
+void          setUpdateCallback( void (*func)(void) );
+
+
 31.01.2020
 1. Добавлена поддержка ESP32
 2. Добавлена возможность авторизации

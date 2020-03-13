@@ -74,6 +74,11 @@ WiFiManager::WiFiManager() {
 //Add Auth Function. Copyright(C) SAV 31.01.20
 //**********************************************
     setAuthHTTP(AUTH_NONE);
+//***********************************************
+// HTTP User Page. Copyright(C) SAV 29.02.20
+//***********************************************
+   _handleUser   = NULL;
+   _buttonUser  = "";
 }
 
 WiFiManager::~WiFiManager()
@@ -171,7 +176,10 @@ void WiFiManager::setupConfigPortal() {
 //**********************************************
 //  server->on(String(F("/login")).c_str(), std::bind(&WiFiManager::handleLogin, this));  
   server->on(String(F("/logout")).c_str(),std::bind(&WiFiManager::handleLogout, this));
-
+//***********************************************
+// HTTP User Page. Copyright(C) SAV 29.02.20
+//***********************************************
+  if( _buttonUser != "" )server->on("/custom",std::bind(&WiFiManager::handleUser, this));
   server->onNotFound (std::bind(&WiFiManager::handleNotFound, this));
   server->begin(); // Web server start
   DEBUG_WM(F("HTTP server started"));
@@ -205,6 +213,13 @@ void WiFiManager::httpStart() {
 //**********************************************
 //  server->on(String(F("/login")).c_str(), std::bind(&WiFiManager::handleLogin, this));  
   server->on(String(F("/logout")).c_str(),std::bind(&WiFiManager::handleLogout, this));
+//***********************************************
+// HTTP User Page. Copyright(C) SAV 29.02.20
+//***********************************************
+  if( _buttonUser != "" ){
+    server->on("/custom",std::bind(&WiFiManager::handleUser, this));
+    DEBUG_WM(F("HTTP /custom OK"));
+  }
 
   server->onNotFound (std::bind(&WiFiManager::handleNotFound, this));
   server->begin(); // Web server start
@@ -339,7 +354,7 @@ int WiFiManager::connectWifi(String ssid, String pass) {
   // check if we've got static_ip settings, if we do, use those.
   if (_sta_static_ip) {
     DEBUG_WM(F("Custom STA IP/GW/Subnet"));
-    WiFi.config(_sta_static_ip, _sta_static_gw, _sta_static_sn, _sta_static_dns);
+    WiFi.config(_sta_static_ip, _sta_static_dns, _sta_static_gw, _sta_static_sn);
     DEBUG_WM(WiFi.localIP());
   }
   //fix for auto connect racing issue
@@ -501,7 +516,16 @@ void WiFiManager::handleRoot() {
   else page += _apName;
   page += String(F("</h1>"));
   page += String(F("<h3>WiFiManager</h3>"));
+//***********************************************
+// HTTP User Page. Copyright(C) SAV 29.02.20
+//***********************************************
   page += FPSTR(HTTP_PORTAL_OPTIONS);
+  if( _buttonUser != "" ){
+     page += "<form action=\"/custom\" method=\"get\"><button>";
+     page += _buttonUser;
+     page += "</button></form><br/>";
+  }
+  page += FPSTR(HTTP_PORTAL_OPTIONS1);
   page += FPSTR(HTTP_END);
 
   server->sendHeader("Content-Length", String(page.length()));
@@ -801,11 +825,7 @@ void WiFiManager::handleReset() {
 
   DEBUG_WM(F("Sent reset page"));
   delay(5000);
-#if defined(ESP8266)
-  ESP.reset();
-#else
   ESP.restart();
-#endif
   delay(2000);
 }
 
@@ -854,6 +874,12 @@ void WiFiManager::setAPCallback( void (*func)(WiFiManager* myWiFiManager) ) {
 void WiFiManager::setSaveConfigCallback( void (*func)(void) ) {
   _savecallback = func;
 }
+
+//start up update callback
+void WiFiManager::setUpdateCallback( void (*func)(void) ) {
+  _updatecallback = func;
+}
+
 
 //sets a custom element to add to head, like a new style tag
 void WiFiManager::setCustomHeadElement(const char* element) {
@@ -925,6 +951,9 @@ void WiFiManager::HTTP_handleUpdateFinish(void){
 void WiFiManager::HTTP_handleUpdate(void){
     HTTPUpload& upload = server->upload();
     if(upload.status == UPLOAD_FILE_START){
+        if ( _updatecallback != NULL) {
+           _updatecallback();
+        }
         if( _debug )Serial.setDebugOutput(true);
 
 #if defined(ESP8266)
@@ -963,7 +992,6 @@ void WiFiManager::HTTP_handleUpdate(void){
 void WiFiManager::HTTP_handleUpload() {
   DEBUG_WM("Enter handleUpload");
   if( !isAuth() )return;
-
   String page = FPSTR(HTTP_HEADER);
 //  page.replace("{v}", "Options");
   page += FPSTR(HTTP_SCRIPT);
@@ -1009,5 +1037,56 @@ void WiFiManager::handleLogout() {
 //  server->authenticate("", "");
   server->sendHeader("HTTP/1.1 401 Unauthorized", "true");
   server->send(401,"text/html","Log Out ...");
+}
 
+//***********************************************
+// HTTP User Page. Copyright(C) SAV 29.02.20
+//***********************************************
+void WiFiManager::setHttpUserPage(String _name, void (*func)(WiFiManager*)){
+  _buttonUser = _name;
+  _httpusercallback  = func;
+//  _handleUser;
+}
+
+void WiFiManager::handleUser() {
+  DEBUG_WM(F("Handle user page"));
+  if( !isAuth() )return;
+  _httpusercallback(this);
+}
+
+/**
+ * Вывод в буфер одного поля формы
+ */
+void WiFiManager::addInput(String &out,const char *label, const char *name, int value, int size){
+   char s[10];
+   sprintf(s,"%d",value);
+   addInput(out,label,name,s,size,size,false);
+}
+
+
+/**
+ * Вывод в буфер одного поля формы
+ */
+void WiFiManager::addInput(String &out,const char *label, const char *name, const char *value, int size, int len, bool is_pass){
+   char str[10];
+   if( strlen( label ) > 0 ){
+      out += "<tr>";
+      out += "<td>";
+      out += label;
+      out += "</td>\n";
+   }
+   out += "<td><input name ='";
+   out += name;
+   out += "' value='";
+   out += value;
+   out += "' size=";
+   sprintf(str,"%d",size);  
+   out += str;
+   out += " length=";    
+   sprintf(str,"%d",len);  
+   out += str;
+   if( is_pass )out += " type='password'";
+   out += ">";  
+   out += "</td>\n";  
+   if( strlen( label ) > 0 )out += "</tr>\n";
 }
